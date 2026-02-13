@@ -137,7 +137,7 @@ jobs:
              CRITICAL REQUIREMENTS for each discussion:
              - Category: Use the 'Ideas' category (or equivalent found in step 1)
              - Title: Follow EXACTLY the same style as existing discussions
-             - Language: ALWAYS write in English, regardless of the language used in existing discussions
+             - Language: If there are no prior discussions, write in English. If there are prior discussions, match the language used in those discussions.
              - Body: Use the SAME structure as existing discussions
              - Include a section explaining what the suggestion is and why it would improve the codebase
              - For UX/Design suggestions, reference the screenshots you took and describe what you observed
