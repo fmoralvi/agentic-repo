@@ -3,6 +3,28 @@ name: ✍️ Issue Quality Enhancer
 on:
   issues:
     types: [opened]
+  workflow_call:
+    inputs:
+      issue_number:
+        description: 'Issue number to enhance'
+        required: true
+        type: string
+      issue_title:
+        description: 'Issue title'
+        required: true
+        type: string
+      issue_body:
+        description: 'Issue body'
+        required: false
+        type: string
+        default: ''
+      issue_author:
+        description: 'Issue author login'
+        required: true
+        type: string
+    secrets:
+      COPILOT_PAT:
+        required: true
 
 permissions:
   contents: read
@@ -25,10 +47,10 @@ jobs:
       - name: ✍️ Enhance issue title and body
         env:
           GH_TOKEN: ${{ secrets.COPILOT_PAT }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
-          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_NUMBER: ${{ inputs.issue_number || github.event.issue.number }}
+          ISSUE_TITLE: ${{ inputs.issue_title || github.event.issue.title }}
+          ISSUE_BODY: ${{ inputs.issue_body || github.event.issue.body }}
+          ISSUE_AUTHOR: ${{ inputs.issue_author || github.event.issue.user.login }}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
 

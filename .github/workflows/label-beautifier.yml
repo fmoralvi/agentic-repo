@@ -11,6 +11,16 @@ on:
         options:
           - 'false'
           - 'true'
+  workflow_call:
+    inputs:
+      dry_run:
+        description: 'Dry run mode (only show changes, do not apply them)'
+        required: false
+        type: string
+        default: 'false'
+    secrets:
+      COPILOT_PAT:
+        required: true
 
 permissions:
   contents: read

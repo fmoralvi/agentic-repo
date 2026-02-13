@@ -24,6 +24,16 @@ on:
           - ux-design
           - favicon
           - readme
+  workflow_call:
+    inputs:
+      suggestion_type:
+        description: 'Type of suggestions to look for'
+        required: false
+        type: string
+        default: 'all'
+    secrets:
+      COPILOT_PAT:
+        required: true
 
 permissions:
   contents: read

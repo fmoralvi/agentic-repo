@@ -5,6 +5,28 @@ on:
     types: [opened, edited]
   pull_request:
     types: [opened, edited]
+  workflow_call:
+    inputs:
+      item_type:
+        description: 'Type of item (issue or pull_request)'
+        required: true
+        type: string
+      item_number:
+        description: 'Item number'
+        required: true
+        type: string
+      item_title:
+        description: 'Item title'
+        required: true
+        type: string
+      item_body:
+        description: 'Item body'
+        required: false
+        type: string
+        default: ''
+    secrets:
+      COPILOT_PAT:
+        required: true
 
 permissions:
   contents: read
@@ -28,10 +50,10 @@ jobs:
       - name: 🏷️ Analyze and assign labels
         env:
           GH_TOKEN: ${{ secrets.COPILOT_PAT }}
-          ITEM_TYPE: ${{ github.event_name == 'issues' && 'issue' || 'pull_request' }}
-          ITEM_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-          ITEM_TITLE: ${{ github.event.issue.title || github.event.pull_request.title }}
-          ITEM_BODY: ${{ github.event.issue.body || github.event.pull_request.body }}
+          ITEM_TYPE: ${{ inputs.item_type || (github.event_name == 'issues' && 'issue' || 'pull_request') }}
+          ITEM_NUMBER: ${{ inputs.item_number || github.event.issue.number || github.event.pull_request.number }}
+          ITEM_TITLE: ${{ inputs.item_title || github.event.issue.title || github.event.pull_request.title }}
+          ITEM_BODY: ${{ inputs.item_body || github.event.issue.body || github.event.pull_request.body }}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
 

@@ -1,0 +1,156 @@
+name: 🚀 Workflow Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repos:
+        description: 'Comma-separated list of repos to install workflows (e.g., "repo1,repo2,org/repo3")'
+        required: true
+        type: string
+      workflows:
+        description: 'Which workflows to install'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - issue-quality-enhancer
+          - smart-labeler
+          - the-suggester-discussion-mode
+          - label-beautifier
+      create_pr:
+        description: 'Create a PR instead of pushing directly to main'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: 🚀 Install Workflows
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🚀 Install caller workflows to target repos
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_PAT }}
+          TARGET_REPOS: ${{ inputs.target_repos }}
+          WORKFLOWS: ${{ inputs.workflows }}
+          CREATE_PR: ${{ inputs.create_pr }}
+        run: |
+          OWNER="0GiS0"
+
+          # Determine which workflow files to install
+          if [ "$WORKFLOWS" = "all" ]; then
+            FILES=$(ls caller-workflows/*.yml)
+          else
+            FILES="caller-workflows/${WORKFLOWS}.yml"
+          fi
+
+          # Process each target repo
+          IFS=',' read -ra REPOS <<< "$TARGET_REPOS"
+          for REPO in "${REPOS[@]}"; do
+            REPO=$(echo "$REPO" | xargs) # trim whitespace
+
+            # Add owner if not specified
+            if [[ "$REPO" != *"/"* ]]; then
+              REPO="${OWNER}/${REPO}"
+            fi
+
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📦 Installing workflows to: $REPO"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+            if [ "$CREATE_PR" = "true" ]; then
+              # Create a branch for the PR
+              BRANCH="agentic-workflows/install-$(date +%Y%m%d%H%M%S)"
+              DEFAULT_BRANCH=$(gh api "repos/${REPO}" --jq '.default_branch')
+
+              # Get the SHA of the default branch
+              SHA=$(gh api "repos/${REPO}/git/ref/heads/${DEFAULT_BRANCH}" --jq '.object.sha')
+
+              # Create the new branch
+              gh api "repos/${REPO}/git/refs" \
+                -f ref="refs/heads/${BRANCH}" \
+                -f sha="${SHA}" || {
+                echo "❌ Failed to create branch in $REPO"
+                continue
+              }
+              echo "🌿 Created branch: $BRANCH"
+            fi
+
+            TARGET_BRANCH="${BRANCH:-main}"
+
+            for FILE in $FILES; do
+              FILENAME=$(basename "$FILE")
+              CONTENT=$(base64 < "$FILE")
+              TARGET_PATH=".github/workflows/${FILENAME}"
+
+              echo "  📄 Installing: $TARGET_PATH"
+
+              # Check if file already exists
+              EXISTING_SHA=$(gh api "repos/${REPO}/contents/${TARGET_PATH}?ref=${TARGET_BRANCH}" --jq '.sha' 2>/dev/null || echo "")
+
+              if [ -n "$EXISTING_SHA" ]; then
+                # Update existing file
+                gh api "repos/${REPO}/contents/${TARGET_PATH}" \
+                  -X PUT \
+                  -f message="🤖 Update ${FILENAME} from agentic-repo" \
+                  -f content="${CONTENT}" \
+                  -f sha="${EXISTING_SHA}" \
+                  -f branch="${TARGET_BRANCH}" || {
+                  echo "  ❌ Failed to update $FILENAME in $REPO"
+                  continue
+                }
+                echo "  ✅ Updated: $FILENAME"
+              else
+                # Create new file
+                gh api "repos/${REPO}/contents/${TARGET_PATH}" \
+                  -X PUT \
+                  -f message="🤖 Install ${FILENAME} from agentic-repo" \
+                  -f content="${CONTENT}" \
+                  -f branch="${TARGET_BRANCH}" || {
+                  echo "  ❌ Failed to create $FILENAME in $REPO"
+                  continue
+                }
+                echo "  ✅ Installed: $FILENAME"
+              fi
+            done
+
+            if [ "$CREATE_PR" = "true" ]; then
+              # Create PR
+              PR_URL=$(gh pr create \
+                --repo "$REPO" \
+                --base "$DEFAULT_BRANCH" \
+                --head "$BRANCH" \
+                --title "🤖 Install agentic workflows from agentic-repo" \
+                --body "## 🚀 Agentic Workflows Installation
+
+          This PR installs reusable workflow callers from [\`agentic-repo\`](https://github.com/${OWNER}/agentic-repo).
+
+          ### Workflows included:
+          $(for FILE in $FILES; do echo "- **$(basename $FILE .yml)** — calls \`${OWNER}/agentic-repo\` reusable workflow"; done)
+
+          ### ⚠️ Required setup:
+          - Add a \`COPILOT_PAT\` secret to this repository with a GitHub PAT that has Copilot access
+
+          ---
+          > 🤖 *This PR was automatically created by the [Workflow Installer](https://github.com/${OWNER}/agentic-repo)*" 2>&1) || {
+                echo "❌ Failed to create PR in $REPO"
+                continue
+              }
+              echo "🎉 PR created: $PR_URL"
+            fi
+
+            echo ""
+          done
+
+          echo "✅ Installation completed!"
