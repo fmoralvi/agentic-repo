@@ -103,69 +103,88 @@ jobs:
 
             for FILE in $FILES; do
               FILENAME=$(basename "$FILE")
-              CONTENT=$(base64 -w 0 < "$FILE")
+              CONTENT=$(base64 "$FILE" | tr -d '\n')
               TARGET_PATH=".github/workflows/${FILENAME}"
 
-              echo "  📄 Processing: $TARGET_PATH (content length: ${#CONTENT})"
+              echo "  📄 Processing: $TARGET_PATH (base64 length: ${#CONTENT})"
 
               # Check if file already exists and analyze its content
-              EXISTING_CONTENT=$(gh api "repos/${REPO}/contents/${TARGET_PATH}?ref=${TARGET_BRANCH}" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || echo "")
-              EXISTING_SHA=$(gh api "repos/${REPO}/contents/${TARGET_PATH}?ref=${TARGET_BRANCH}" --jq '.sha' 2>/dev/null || echo "")
+              EXISTING_JSON=$(gh api "repos/${REPO}/contents/${TARGET_PATH}?ref=${TARGET_BRANCH}" 2>/dev/null || echo "")
+              EXISTING_CONTENT=$(echo "$EXISTING_JSON" | jq -r '.content // empty' 2>/dev/null | tr -d '\n' | base64 -d 2>/dev/null || echo "")
+              EXISTING_SHA=$(echo "$EXISTING_JSON" | jq -r '.sha // empty' 2>/dev/null || echo "")
+
+              # Build the JSON payload in a temp file
+              PAYLOAD_FILE=$(mktemp)
 
               if [ -n "$EXISTING_CONTENT" ]; then
                 # Check if it's already a caller (uses reusable workflow)
                 if echo "$EXISTING_CONTENT" | grep -q "uses: ${OWNER}/agentic-repo/"; then
                   echo "  ⏭️  Already using reusable workflow, skipping: $FILENAME"
                   ALREADY_CALLER="${ALREADY_CALLER}\n- **${FILENAME%.yml}** — already centralized ✅"
+                  rm -f "$PAYLOAD_FILE"
                   continue
                 fi
-                
+
                 # Check if it's a full workflow (contains copilot -p or the main logic)
                 if echo "$EXISTING_CONTENT" | grep -q "copilot -p\|Install GitHub Copilot CLI"; then
                   echo "  🔄 Converting full workflow to caller: $FILENAME"
-                  
-                  # Update existing file with caller version
-                  jq -n \
-                    --arg message "🔄 Convert ${FILENAME} to use centralized reusable workflow from agentic-repo" \
-                    --arg content "${CONTENT}" \
-                    --arg sha "${EXISTING_SHA}" \
-                    --arg branch "${TARGET_BRANCH}" \
-                    '{message: $message, content: $content, sha: $sha, branch: $branch}' | \
-                  gh api "repos/${REPO}/contents/${TARGET_PATH}" -X PUT --input - || {
-                    echo "  ❌ Failed to convert $FILENAME in $REPO"
-                    continue
-                  }
-                  echo "  ✅ Converted: $FILENAME → now uses centralized workflow"
-                  CONVERTED="${CONVERTED}\n- **${FILENAME%.yml}** — converted from full workflow to caller"
+                  COMMIT_MSG="🔄 Convert ${FILENAME} to use centralized reusable workflow from agentic-repo"
                 else
-                  # Unknown workflow, update anyway
-                  jq -n \
-                    --arg message "🤖 Update ${FILENAME} from agentic-repo" \
-                    --arg content "${CONTENT}" \
-                    --arg sha "${EXISTING_SHA}" \
-                    --arg branch "${TARGET_BRANCH}" \
-                    '{message: $message, content: $content, sha: $sha, branch: $branch}' | \
-                  gh api "repos/${REPO}/contents/${TARGET_PATH}" -X PUT --input - || {
-                    echo "  ❌ Failed to update $FILENAME in $REPO"
-                    continue
-                  }
-                  echo "  ✅ Updated: $FILENAME"
-                  INSTALLED_NEW="${INSTALLED_NEW}\n- **${FILENAME%.yml}** — updated"
+                  echo "  💡 Updating existing workflow: $FILENAME"
+                  COMMIT_MSG="🤖 Update ${FILENAME} from agentic-repo"
+                fi
+
+                jq -n \
+                  --arg message "$COMMIT_MSG" \
+                  --arg content "$CONTENT" \
+                  --arg sha "$EXISTING_SHA" \
+                  --arg branch "$TARGET_BRANCH" \
+                  '{message: $message, content: $content, sha: $sha, branch: $branch}' > "$PAYLOAD_FILE"
+                HTTP_STATUS=$(curl -s -o /tmp/api_response.json -w "%{http_code}" \
+                  -X PUT \
+                  -H "Authorization: Bearer $GH_TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  -d @"$PAYLOAD_FILE" \
+                  "https://api.github.com/repos/${REPO}/contents/${TARGET_PATH}")
+                if [[ "$HTTP_STATUS" == "200" || "$HTTP_STATUS" == "201" ]]; then
+                  if echo "$EXISTING_CONTENT" | grep -q "copilot -p\|Install GitHub Copilot CLI"; then
+                    echo "  ✅ Converted: $FILENAME → now uses centralized workflow"
+                    CONVERTED="${CONVERTED}\n- **${FILENAME%.yml}** — converted from full workflow to caller"
+                  else
+                    echo "  ✅ Updated: $FILENAME"
+                    INSTALLED_NEW="${INSTALLED_NEW}\n- **${FILENAME%.yml}** — updated"
+                  fi
+                else
+                  echo "  ❌ Failed to update $FILENAME in $REPO (HTTP $HTTP_STATUS)"
+                  cat /tmp/api_response.json
                 fi
               else
                 # Create new file
                 jq -n \
                   --arg message "🤖 Install ${FILENAME} from agentic-repo" \
-                  --arg content "${CONTENT}" \
-                  --arg branch "${TARGET_BRANCH}" \
-                  '{message: $message, content: $content, branch: $branch}' | \
-                gh api "repos/${REPO}/contents/${TARGET_PATH}" -X PUT --input - || {
-                  echo "  ❌ Failed to create $FILENAME in $REPO"
-                  continue
-                }
-                echo "  ✅ Installed: $FILENAME"
-                INSTALLED_NEW="${INSTALLED_NEW}\n- **${FILENAME%.yml}** — newly installed"
+                  --arg content "$CONTENT" \
+                  --arg branch "$TARGET_BRANCH" \
+                  '{message: $message, content: $content, branch: $branch}' > "$PAYLOAD_FILE"
+                HTTP_STATUS=$(curl -s -o /tmp/api_response.json -w "%{http_code}" \
+                  -X PUT \
+                  -H "Authorization: Bearer $GH_TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  -d @"$PAYLOAD_FILE" \
+                  "https://api.github.com/repos/${REPO}/contents/${TARGET_PATH}")
+                if [[ "$HTTP_STATUS" == "200" || "$HTTP_STATUS" == "201" ]]; then
+                  echo "  ✅ Installed: $FILENAME"
+                  INSTALLED_NEW="${INSTALLED_NEW}\n- **${FILENAME%.yml}** — newly installed"
+                else
+                  echo "  ❌ Failed to create $FILENAME in $REPO (HTTP $HTTP_STATUS)"
+                  cat /tmp/api_response.json
+                fi
               fi
+
+              rm -f "$PAYLOAD_FILE"
             done
 
             if [ "$CREATE_PR" = "true" ]; then
