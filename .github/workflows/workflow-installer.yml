@@ -103,7 +103,7 @@ jobs:
 
             for FILE in $FILES; do
               FILENAME=$(basename "$FILE")
-              CONTENT=$(base64 < "$FILE")
+              CONTENT=$(base64 -w 0 < "$FILE")
               TARGET_PATH=".github/workflows/${FILENAME}"
 
               echo "  📄 Processing: $TARGET_PATH"
