@@ -106,7 +106,7 @@ jobs:
               CONTENT=$(base64 -w 0 < "$FILE")
               TARGET_PATH=".github/workflows/${FILENAME}"
 
-              echo "  📄 Processing: $TARGET_PATH"
+              echo "  📄 Processing: $TARGET_PATH (content length: ${#CONTENT})"
 
               # Check if file already exists and analyze its content
               EXISTING_CONTENT=$(gh api "repos/${REPO}/contents/${TARGET_PATH}?ref=${TARGET_BRANCH}" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || echo "")
@@ -125,12 +125,13 @@ jobs:
                   echo "  🔄 Converting full workflow to caller: $FILENAME"
                   
                   # Update existing file with caller version
-                  gh api "repos/${REPO}/contents/${TARGET_PATH}" \
-                    -X PUT \
-                    -f message="🔄 Convert ${FILENAME} to use centralized reusable workflow from agentic-repo" \
-                    -f content="${CONTENT}" \
-                    -f sha="${EXISTING_SHA}" \
-                    -f branch="${TARGET_BRANCH}" || {
+                  jq -n \
+                    --arg message "🔄 Convert ${FILENAME} to use centralized reusable workflow from agentic-repo" \
+                    --arg content "${CONTENT}" \
+                    --arg sha "${EXISTING_SHA}" \
+                    --arg branch "${TARGET_BRANCH}" \
+                    '{message: $message, content: $content, sha: $sha, branch: $branch}' | \
+                  gh api "repos/${REPO}/contents/${TARGET_PATH}" -X PUT --input - || {
                     echo "  ❌ Failed to convert $FILENAME in $REPO"
                     continue
                   }
@@ -138,12 +139,13 @@ jobs:
                   CONVERTED="${CONVERTED}\n- **${FILENAME%.yml}** — converted from full workflow to caller"
                 else
                   # Unknown workflow, update anyway
-                  gh api "repos/${REPO}/contents/${TARGET_PATH}" \
-                    -X PUT \
-                    -f message="🤖 Update ${FILENAME} from agentic-repo" \
-                    -f content="${CONTENT}" \
-                    -f sha="${EXISTING_SHA}" \
-                    -f branch="${TARGET_BRANCH}" || {
+                  jq -n \
+                    --arg message "🤖 Update ${FILENAME} from agentic-repo" \
+                    --arg content "${CONTENT}" \
+                    --arg sha "${EXISTING_SHA}" \
+                    --arg branch "${TARGET_BRANCH}" \
+                    '{message: $message, content: $content, sha: $sha, branch: $branch}' | \
+                  gh api "repos/${REPO}/contents/${TARGET_PATH}" -X PUT --input - || {
                     echo "  ❌ Failed to update $FILENAME in $REPO"
                     continue
                   }
@@ -152,11 +154,12 @@ jobs:
                 fi
               else
                 # Create new file
-                gh api "repos/${REPO}/contents/${TARGET_PATH}" \
-                  -X PUT \
-                  -f message="🤖 Install ${FILENAME} from agentic-repo" \
-                  -f content="${CONTENT}" \
-                  -f branch="${TARGET_BRANCH}" || {
+                jq -n \
+                  --arg message "🤖 Install ${FILENAME} from agentic-repo" \
+                  --arg content "${CONTENT}" \
+                  --arg branch "${TARGET_BRANCH}" \
+                  '{message: $message, content: $content, branch: $branch}' | \
+                gh api "repos/${REPO}/contents/${TARGET_PATH}" -X PUT --input - || {
                   echo "  ❌ Failed to create $FILENAME in $REPO"
                   continue
                 }
